@@ -31,7 +31,7 @@ jobs:
       - name: Run Update Script
         env:
           # 从你之前设置的 Secrets 秘密仓库里读取 Token
-          GH_TOKEN: ${{ secrets.GIST_TOKEN}}
+          GH_TOKEN: ${{ secrets.GIST_TOKEN }}
           # 你的 Gist ID 保持不变
           GIST_ID: "a05bf384ba10cf0c9c4f69a3f85f5a12"
         run: |
