@@ -1,38 +1,29 @@
 name: Ducky Menu Auto-Evolve
 
-# 这里的逻辑是控制“什么时候”开始进货
 on:
   schedule:
-    # 每天北京时间凌晨 4:00 自动运行 (UTC 20:00)
-    - cron: '0 20 * * *'
-  workflow_dispatch: # 这个非常重要，它让你可以在 Actions 页面手动点击按钮测试
+    - cron: '0 20 * * *' # 北京时间凌晨 4 点
+  workflow_dispatch: 
 
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      # 1. 把你仓库里的代码“下载”到 GitHub 的临时服务器上
       - name: Checkout Repository
         uses: actions/checkout@v3
 
-      # 2. 安装 Python 环境
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.9'
 
-      # 3. 安装脚本需要的依赖库（requests 用于访问网络）
       - name: Install Dependencies
-        run: |
-          pip install requests
+        run: pip install requests
 
-      # 4. 核心动作：运行你的抓取脚本
       - name: Run Update Script
         env:
-          # 从你之前设置的 Secrets 秘密仓库里读取 Token
           GH_TOKEN: ${{ secrets.GIST_TOKEN }}
-          # 你的 Gist ID 保持不变
           GIST_ID: "a05bf384ba10cf0c9c4f69a3f85f5a12"
+          FOOD_API_KEY: ${{ secrets.FOOD_API_KEY }}
         run: |
           python update_meals.py
