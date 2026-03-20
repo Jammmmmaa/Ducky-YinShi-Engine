@@ -1,50 +1,84 @@
-import os, requests, random, json
+import requests
+import json
+import os
+import re
 
-# 配置
-GIST_ID = "a05bf384ba10cf0c9c4f69a3f85f5a12"
-GIST_TOKEN = os.getenv("GIST_TOKEN")
+# --- 核心配置 ---
+GIST_ID = os.environ.get('GIST_ID')
+GITHUB_TOKEN = os.environ.get('GH_TOKEN')
 
-def run():
-    # 1. 地中海晚餐：侧重 Omega-3, 不饱和脂肪, 餐厅级质感
-    med_list = [
-        "Main:香煎三文鱼 (橄榄油制)|Side:芝麻菜核桃沙拉|Staple:香草烤土豆|Shop:三文鱼、芝麻菜、核桃、土豆、橄榄油",
-        "Main:柠檬烤鳕鱼|Side:烤芦笋配帕玛森干酪|Staple:藜麦饭|Shop:鳕鱼、芦笋、藜麦、柠檬",
-        "Main:慢炖番茄海鲜集|Side:羽衣甘蓝甜椒拌橄榄|Staple:全麦皮塔饼|Shop:虾/贝类、番茄、羽衣甘蓝、全麦面包",
-        "Main:迷迭香烤鸡腿肉|Side:烤口蘑配蒜片|Staple:法老小麦(或糙米)|Shop:鸡腿、口蘑、大蒜、糙米"
-    ]
-    
-    # 2. 中式晚餐：侧重 2026 膳食指南清淡烹饪, 高纤维
-    chi_list = [
-        "Main:清蒸姜葱鲈鱼|Side:白灼菜心|Staple:蒸土豆(淀粉护胃)|Shop:鲈鱼、菜心、土豆、葱姜",
-        "Main:豉汁蒸排骨|Side:蒜泥西兰花|Staple:糙米饭|Shop:排骨、西兰花、糙米、豆豉",
-        "Main:西芹腰果炒虾仁|Side:凉拌木耳丝|Staple:小米粥|Shop:虾仁、西芹、腰果、木耳、小米",
-        "Main:酱牛肉拼盘|Side:蚝油生菜|Staple:清蒸山药|Shop:熟牛肉、生菜、山药、蚝油"
-    ]
-
-    # 3. 早午餐：快速、高能、美学
-    bru_list = [
-        "Main:北非番茄烩蛋 (Shakshuka)|Side:新鲜果蔬|Staple:全麦面包|Shop:番茄、鸡蛋、洋葱、全麦面包",
-        "Main:牛油果熏三文鱼开放三明治|Side:混合坚果|Staple:全麦吐司|Shop:熏三文鱼、牛油果、全麦面包",
-        "Main:希腊酸奶坚果能量碗|Side:无花果/蓝莓|Staple:燕麦/坚果|Shop:希腊酸奶、无花果、蓝莓、核桃"
-    ]
-
-    # 4. 加餐
-    snk_list = [
-        "Main:无花果/石榴|Side:一把原味核桃|Staple:无|Shop:无花果、石榴、核桃",
-        "Main:蓝莓|Side:85%黑巧克力|Staple:无|Shop:蓝莓、黑巧克力"
-    ]
-
-    new_data = {
-        "brunch": [random.choice(bru_list) for _ in range(30)],
-        "dinner": [random.choice(med_list) for _ in range(30)],
-        "chinese_dinner": [random.choice(chi_list) for _ in range(30)],
-        "snack": [random.choice(snk_list) for _ in range(30)]
+def fetch_real_web_trends():
+    """
+    真正联网：抓取下厨房(Xiachufang)或高质量食谱站点的实时趋势
+    并根据 [维度穿透] 逻辑进行清洗
+    """
+    trends = []
+    # 示例：抓取下厨房周度最受欢迎 (这是一个真实的网页接口)
+    # 注意：实际生产中我们可以对接多个 RSS 订阅源
+    target_url = "https://www.xiachufang.com/explore/" 
+    headers = {
+        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Mobile/15E148 Safari/604.1"
     }
 
-    headers = {"Authorization": f"token {GIST_TOKEN}", "Accept": "application/vnd.github.v3+json"}
-    payload = {"files": {"ducky_meals.json": {"content": json.dumps(new_data, ensure_ascii=False, indent=2)}}}
-    r = requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json=payload)
-    print(f"Sync Status: {r.status_code}")
+    try:
+        r = requests.get(target_url, headers=headers, timeout=10)
+        # 提取页面中的菜谱名称 (使用正则简单模拟爬虫逻辑)
+        # 实际逻辑会更复杂，这里确保演示真实联网动作
+        raw_names = re.findall(r'alt="([^"]+)"', r.text)
+        
+        # --- ORIGIN 过滤器：只保留符合你五大菜系及地中海审美的关键词 ---
+        keywords = ["清蒸", "凉拌", "酸笋", "柠檬", "橄榄", "牛里脊", "虾", "菌菇", "和牛", "地中海"]
+        
+        for name in raw_names:
+            if any(k in name for k in keywords):
+                # 结构化：将互联网标题自动转化为你的 [维度穿透] 格式
+                # 自动分配配料模块
+                dish = f"Main: [全网热搜] {name} | Side: 时令有机时蔬沙拉 | Staple: 复合全谷物 | Shop: [Provisions] 初榨橄榄油, 海盐, 黑胡椒, 基础调味"
+                if dish not in trends:
+                    trends.append(dish)
+        
+        return trends[:5] # 每次只进货 5 道最精华的
+    except Exception as e:
+        print(f"联网抓取失败: {e}")
+        return []
+
+def evolve_system():
+    if not GIST_ID or not GITHUB_TOKEN:
+        print("未检测到密钥，请检查 Actions Secrets 设置。")
+        return
+
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    
+    # 1. 获取当前数据
+    r = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=headers)
+    gist = r.json()
+    filename = 'ducky_meals.json'
+    content = json.loads(gist['files'][filename]['content'])
+    
+    # 2. 真正联网进货
+    print("正在连接互联网抓取最新菜谱...")
+    new_dishes = fetch_real_web_trends()
+    
+    # 3. 注入数据池 (插入到各分类顶部)
+    if new_dishes:
+        for dish in new_dishes:
+            # 简单逻辑：包含中式关键词的进 chinese_dinner，其余进 dinner
+            if any(k in dish for k in ["酸笋", "本帮", "川", "粤", "滇"]):
+                if dish not in content['chinese_dinner']:
+                    content['chinese_dinner'].insert(0, dish)
+            else:
+                if dish not in content['dinner']:
+                    content['dinner'].insert(0, dish)
+        
+        print(f"成功抓取到 {len(new_dishes)} 道互联网趋势菜品。")
+    
+    # 4. 保持精简
+    for cat in content:
+        content[cat] = content[cat][:20]
+
+    # 5. 回传更新
+    updated_files = {filename: {"content": json.dumps(content, ensure_ascii=False, indent=2)}}
+    requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json={"files": updated_files})
 
 if __name__ == "__main__":
-    run()
+    evolve_system()
