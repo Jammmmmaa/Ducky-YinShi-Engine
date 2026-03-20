@@ -1,121 +1,50 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Ducky 营养规划</title>
-    <style>
-        :root { --p: #2C3E50; --s: #27AE60; --a: #E74C3C; --bg: #F4F7F6; }
-        body { font-family: "PingFang SC", sans-serif; background: var(--bg); padding: 20px; margin: 0; color: var(--p); }
-        .container { max-width: 400px; margin: 0 auto; }
-        
-        /* 营养师风格卡片 */
-        .plan-card { 
-            background: white; border-radius: 24px; padding: 25px; 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.05); margin-bottom: 25px;
-            border-left: 6px solid var(--s); min-height: 250px;
-        }
-        .plan-header { border-bottom: 1px solid #EEE; padding-bottom: 15px; margin-bottom: 15px; display: flex; justify-content: space-between; align-items: center; }
-        .type-label { font-size: 0.75rem; font-weight: 900; color: #999; letter-spacing: 1px; }
-        
-        .section { margin-bottom: 15px; }
-        .section-label { font-size: 0.65rem; color: var(--s); font-weight: 800; margin-bottom: 4px; display: block; }
-        .section-val { font-size: 1.15rem; font-weight: 700; color: var(--p); }
-        .staple-val { color: #8E44AD; } /* 主食特别颜色标注 */
+import os, requests, random, json
 
-        .shop-box { background: #F9F9F9; padding: 12px; border-radius: 12px; margin-top: 10px; }
-        .shop-title { font-size: 0.6rem; color: #BBB; font-weight: 800; margin-bottom: 5px; }
-        .shop-items { font-size: 0.85rem; color: #666; line-height: 1.4; }
+# 配置
+GIST_ID = "a05bf384ba10cf0c9c4f69a3f85f5a12"
+GIST_TOKEN = os.getenv("GIST_TOKEN")
 
-        .btn-group { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-        button { 
-            background: var(--p); color: white; border: none; padding: 18px 5px; 
-            border-radius: 18px; font-weight: 700; cursor: pointer; transition: 0.2s;
-        }
-        button:active { transform: scale(0.95); opacity: 0.8; }
-        .btn-full { grid-column: span 2; }
-        .btn-ch { background: #C0392B; }
-        .btn-med { background: var(--s); }
-        button:disabled { background: #CCC; }
-
-        .footer { text-align: center; font-size: 0.6rem; color: #CCC; margin-top: 20px; }
-    </style>
-</head>
-<body>
-
-<div class="container">
-    <div class="plan-card" id="card">
-        <div class="plan-header">
-            <span class="type-label" id="type-txt">NUTRITION PLAN</span>
-            <span id="date-txt" style="font-size: 0.6rem; color: #DDD;">2026-GUIDE</span>
-        </div>
-        
-        <div id="display-area">
-            <div class="section">
-                <span class="section-label">【主菜 / Main Protein】</span>
-                <div class="section-val" id="main-v">等待规划...</div>
-            </div>
-            <div class="section">
-                <span class="section-label">【配菜 / Side Dish】</span>
-                <div class="section-val" id="side-v">---</div>
-            </div>
-            <div class="section">
-                <span class="section-label">【碳水 / Staple】</span>
-                <div class="section-val staple-val" id="staple-v">---</div>
-            </div>
-            <div class="shop-box" id="shop-box" style="display:none;">
-                <div class="shop-title">📋 准备清单 / PREP LIST</div>
-                <div class="shop-items" id="shop-v"></div>
-            </div>
-        </div>
-    </div>
-
-    <div class="btn-group">
-        <button class="btn-full" onclick="gen('brunch')" id="b1" disabled>☀️ 餐厅级早午餐</button>
-        <button class="btn-ch" onclick="gen('chinese_dinner')" id="b2" disabled>🥢 中式平衡晚餐</button>
-        <button class="btn-med" onclick="gen('dinner')" id="b3" disabled>🌿 地中海晚餐</button>
-        <button class="btn-full" style="background:#7F8C8D" onclick="gen('snack')" id="b4" disabled>🍏 营养加餐</button>
-    </div>
+def run():
+    # 1. 地中海晚餐：侧重 Omega-3, 不饱和脂肪, 餐厅级质感
+    med_list = [
+        "Main:香煎三文鱼 (橄榄油制)|Side:芝麻菜核桃沙拉|Staple:香草烤土豆|Shop:三文鱼、芝麻菜、核桃、土豆、橄榄油",
+        "Main:柠檬烤鳕鱼|Side:烤芦笋配帕玛森干酪|Staple:藜麦饭|Shop:鳕鱼、芦笋、藜麦、柠檬",
+        "Main:慢炖番茄海鲜集|Side:羽衣甘蓝甜椒拌橄榄|Staple:全麦皮塔饼|Shop:虾/贝类、番茄、羽衣甘蓝、全麦面包",
+        "Main:迷迭香烤鸡腿肉|Side:烤口蘑配蒜片|Staple:法老小麦(或糙米)|Shop:鸡腿、口蘑、大蒜、糙米"
+    ]
     
-    <div class="footer">● 2026 膳食引擎已连接 | Logic & Aesthetics</div>
-</div>
+    # 2. 中式晚餐：侧重 2026 膳食指南清淡烹饪, 高纤维
+    chi_list = [
+        "Main:清蒸姜葱鲈鱼|Side:白灼菜心|Staple:蒸土豆(淀粉护胃)|Shop:鲈鱼、菜心、土豆、葱姜",
+        "Main:豉汁蒸排骨|Side:蒜泥西兰花|Staple:糙米饭|Shop:排骨、西兰花、糙米、豆豉",
+        "Main:西芹腰果炒虾仁|Side:凉拌木耳丝|Staple:小米粥|Shop:虾仁、西芹、腰果、木耳、小米",
+        "Main:酱牛肉拼盘|Side:蚝油生菜|Staple:清蒸山药|Shop:熟牛肉、生菜、山药、蚝油"
+    ]
 
-<script>
-    let data = null;
-    const URL = 'https://gist.githubusercontent.com/Jammmmmaa/a05bf384ba10cf0c9c4f69a3f85f5a12/raw/ducky_meals.json?v=' + Date.now();
+    # 3. 早午餐：快速、高能、美学
+    bru_list = [
+        "Main:北非番茄烩蛋 (Shakshuka)|Side:新鲜果蔬|Staple:全麦面包|Shop:番茄、鸡蛋、洋葱、全麦面包",
+        "Main:牛油果熏三文鱼开放三明治|Side:混合坚果|Staple:全麦吐司|Shop:熏三文鱼、牛油果、全麦面包",
+        "Main:希腊酸奶坚果能量碗|Side:无花果/蓝莓|Staple:燕麦/坚果|Shop:希腊酸奶、无花果、蓝莓、核桃"
+    ]
 
-    async function init() {
-        try {
-            const r = await fetch(URL);
-            data = await r.json();
-            document.querySelectorAll('button').forEach(b => b.disabled = false);
-        } catch(e) { alert("网络连接失败"); }
+    # 4. 加餐
+    snk_list = [
+        "Main:无花果/石榴|Side:一把原味核桃|Staple:无|Shop:无花果、石榴、核桃",
+        "Main:蓝莓|Side:85%黑巧克力|Staple:无|Shop:蓝莓、黑巧克力"
+    ]
+
+    new_data = {
+        "brunch": [random.choice(bru_list) for _ in range(30)],
+        "dinner": [random.choice(med_list) for _ in range(30)],
+        "chinese_dinner": [random.choice(chi_list) for _ in range(30)],
+        "snack": [random.choice(snk_list) for _ in range(30)]
     }
 
-    function gen(type) {
-        if(!data) return;
-        const pool = data[type];
-        const raw = pool[Math.floor(Math.random()*pool.length)];
-        
-        // 解析结构化数据
-        const parts = {};
-        raw.split('|').forEach(p => {
-            const [k, v] = p.split(':');
-            parts[k] = v;
-        });
+    headers = {"Authorization": f"token {GIST_TOKEN}", "Accept": "application/vnd.github.v3+json"}
+    payload = {"files": {"ducky_meals.json": {"content": json.dumps(new_data, ensure_ascii=False, indent=2)}}}
+    r = requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json=payload)
+    print(f"Sync Status: {r.status_code}")
 
-        document.getElementById('main-v').innerText = parts.Main;
-        document.getElementById('side-v').innerText = parts.Side;
-        document.getElementById('staple-v').innerText = parts.Staple;
-        document.getElementById('shop-v').innerText = parts.Shop;
-        document.getElementById('shop-box').style.display = 'block';
-        document.getElementById('type-txt').innerText = type.toUpperCase().replace('_', ' ');
-        
-        // 视觉反馈
-        const card = document.getElementById('card');
-        card.style.borderColor = type === 'chinese_dinner' ? '#C0392B' : (type === 'dinner' ? '#27AE60' : '#2C3E50');
-    }
-    init();
-</script>
-</body>
-</html>
+if __name__ == "__main__":
+    run()
