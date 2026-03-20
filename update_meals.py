@@ -7,99 +7,95 @@ import re
 GIST_ID = os.environ.get('GIST_ID')
 GITHUB_TOKEN = os.environ.get('GH_TOKEN')
 
-def extract_pure_dish_name(raw_text):
+def get_clean_dish_name(title):
     """
-    极致清洗：不仅去掉符号，还要精准切除博主名称和无意义后缀
+    针对新源的极致清洗：只保留核心菜名，剔除所有营销号后缀
     """
-    # 1. 过滤掉纯博主名的条目（通常这种条目很短或者包含"的"）
-    if "的厨房" in raw_text or "的小课堂" in raw_text or "私房" in raw_text:
-        # 尝试拆分，例如 "阿曼达的厨房：清蒸鱼" -> 取 "清蒸鱼"
-        if "：" in raw_text: return raw_text.split("：")[-1]
-        if ":" in raw_text: return raw_text.split(":")[-1]
-        # 如果是 "阿曼达的清蒸鱼"，去掉 "阿曼达的"
-        raw_text = re.sub(r'.*?的', '', raw_text)
+    # 1. 剔除常见的博主营销后缀
+    garbage_words = ["的小厨房", "私房菜", "教程", "全攻略", "必读", "分享", "测评", "推荐"]
+    for word in garbage_words:
+        title = title.replace(word, "")
+    
+    # 2. 提取最像菜名的部分（通常是冒号后面，或者书名号里的）
+    if "：" in title: title = title.split("：")[-1]
+    if "【" in title: title = re.search(r'【(.*?)】', title).group(1) if re.search(r'【(.*?)】', title) else title
+    
+    # 3. 强制只留汉字，长度控制在 2-10 字之间（博主名通常带符号或过长）
+    pure_hanzi = re.sub(r'[^\u4e00-\u9fa5]', '', title)
+    return pure_hanzi if 2 <= len(pure_hanzi) <= 10 else None
 
-    # 2. 去除表情、特殊符号、括号内容
-    t = re.sub(r'\(.*?\)|（.*?）|\[.*?\]|【.*?】', '', raw_text)
-    t = re.sub(r'[^\u4e00-\u9fa5]', '', t) # 强制只保留汉字，彻底杀掉英文 ID 和表情
-
-    # 3. 常见无意义后缀清理
-    for suffix in ["做法", "分享", "全攻略", "秘籍", "超简单", "懒人版", "必学"]:
-        t = t.replace(suffix, "")
-        
-    return t
-
-def get_category_config(dish_name):
+def classify_to_origin_button(name):
     """
-    根据菜名核心词，精准分配到四个按钮，并匹配 ORIGIN 营养模板
+    根据菜名逻辑，自动分流到四个按钮，并匹配 50:25:25 营养模板
     """
-    t = dish_name
-    # Brunch 逻辑
-    if any(k in t for k in ["蛋", "吐司", "三明治", "贝果", "燕麦", "煎饼", "滑蛋", "早", "松饼"]):
+    # Brunch
+    if any(k in name for k in ["蛋", "吐司", "三明治", "贝果", "燕麦", "煎饼", "滑蛋", "早"]):
         return "brunch", "芝麻菜沙拉与半个牛油果", "全麦欧包/低GI燕麦"
-    # Snack 逻辑
-    elif any(k in t for k in ["酸奶", "坚果", "能量", "水果", "奇亚籽", "莓", "碗", "零食"]):
+    # Snack
+    elif any(k in name for k in ["酸奶", "坚果", "能量", "水果", "奇亚籽", "莓", "碗"]):
         return "snack", "抗氧化浆果 (蓝莓/草莓)", "无糖糙米饼/黑巧克力"
-    # 中式晚餐 逻辑
-    elif any(k in t for k in ["蒸", "炒", "笋", "酱", "腐", "肉", "鱼", "虾", "粤", "川", "滇", "丝", "片"]):
-        return "chinese_dinner", "白灼/清炒时令青菜 (加倍)", "五谷杂粮饭 (1/4碗)"
-    # 默认：地中海/西式晚餐
+    # 中式晚餐
+    elif any(k in name for k in ["蒸", "炒", "笋", "酱", "腐", "肉", "鱼", "虾", "粤", "川", "滇"]):
+        return "chinese_dinner", "白灼/清炒时令青菜 (加倍分量)", "五谷杂粮饭 (1/4碗)"
+    # 默认：地中海晚餐
     return "dinner", "地中海烤西葫芦与甜椒", "蒜香藜麦/盐烤红薯"
 
-def run_evolution():
-    url = "https://www.xiachufang.com/explore/"
-    headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_0)"}
-
+def evolve_origin_engine():
+    # 切换到更稳定的高质量美食数据聚合源 (这里使用一个通用的精品 RSS 转换接口)
+    # 这个源只返回标题，不包含杂乱的博主 ID
+    url = "https://rsshub.app/xiachufang/user/1000547/collections" # 抓取特定精品收藏夹，数据更纯净
+    
     try:
-        response = requests.get(url, headers=headers, timeout=15)
-        # 换一种抓取方式：匹配所有可能是标题的文本
-        raw_list = re.findall(r'alt="([^"]+)"', response.text)
+        print("正在连接精品数据源，执行 ORIGIN 饮食引擎进化...")
+        headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_0)"}
+        response = requests.get(url, headers=headers, timeout=20)
         
+        # 解析 RSS 里的标题 (XML 格式)
+        raw_titles = re.findall(r'<title><!\[CDATA\[(.*?)\]\]></title>', response.text)
+        
+        # 准备云端数据
         auth_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
         r = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=auth_headers)
         content = json.loads(r.json()['files']['ducky_meals.json']['content'])
 
-        # 建立指纹库进行去重（提取现有菜谱里的汉字核心）
-        existing_fingerprints = set()
+        # 获取已存在的菜名指纹
+        existing_names = set()
         for cat in content:
             for dish in content[cat]:
-                core = re.sub(r'[^\u4e00-\u9fa5]', '', dish.split('|')[0])
-                existing_fingerprints.add(core)
+                name_core = dish.split('|')[0].replace("Main: [维度穿透] ", "").strip()
+                existing_names.add(name_core)
 
         added_count = 0
-        for raw_item in raw_list:
-            pure_name = extract_pure_dish_name(raw_item)
+        for raw_t in raw_titles:
+            # 过滤掉非菜谱类的标题（比如“我的收藏”）
+            if "收藏" in raw_t or len(raw_t) < 3: continue
             
-            # 过滤：太短的（可能是博主名）、已存在的、带黑名单词的
-            if len(pure_name) < 2 or pure_name in existing_fingerprints:
-                continue
-            if any(b in raw_item for b in ["炸", "糖", "蛋糕", "红烧肉", "五花肉"]):
-                continue
-
-            # 分流
-            cat, side, staple = get_category_config(pure_name)
+            clean_name = get_clean_dish_name(raw_t)
+            if not clean_name or clean_name in existing_names: continue
             
-            # 组装
+            # 分流逻辑
+            category, side, staple = classify_to_origin_button(clean_name)
+            
+            # 组装 ORIGIN 标准格式
             new_entry = (
-                f"Main: [维度穿透] {pure_name} | "
+                f"Main: [维度穿透] {clean_name} | "
                 f"Side: {side} | "
                 f"Staple: {staple} | "
-                f"Shop: [Fresh] {pure_name}主料, 基础调味, 优质油脂"
+                f"Shop: [Fresh] {clean_name}核心食材, 优质油脂, 海盐"
             )
             
-            content[cat].insert(0, new_entry)
-            content[cat] = content[cat][:15] # 数量限制
-            existing_fingerprints.add(pure_name)
+            content[category].insert(0, new_entry)
+            content[category] = content[category][:15] # 限制数量
+            existing_names.add(clean_name)
             added_count += 1
-            if added_count >= 10: break # 每次进货量控制在 10 个以内
 
-        # 上传
-        updated = {"ducky_meals.json": {"content": json.dumps(content, ensure_ascii=False, indent=2)}}
-        requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=auth_headers, json={"files": updated})
-        print(f"✅ 进化成功：新增 {added_count} 道纯净菜谱。")
+        # 上传更新
+        updated_data = {"ducky_meals.json": {"content": json.dumps(content, ensure_ascii=False, indent=2)}}
+        requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=auth_headers, json={"files": updated_data})
+        print(f"✅ 进化完成！新增 {added_count} 道精品菜谱。")
 
     except Exception as e:
         print(f"❌ 运行异常: {e}")
 
 if __name__ == "__main__":
-    run_evolution()
+    evolve_origin_engine()
