@@ -7,78 +7,94 @@ import re
 GIST_ID = os.environ.get('GIST_ID')
 GITHUB_TOKEN = os.environ.get('GH_TOKEN')
 
-def fetch_real_web_trends():
+def classify_and_structure(title):
     """
-    真正联网：抓取下厨房(Xiachufang)或高质量食谱站点的实时趋势
-    并根据 [维度穿透] 逻辑进行清洗
+    ORIGIN 语义分流器：
+    根据菜名关键词，自动归类到 iPhone 13 上的四个按钮，并补齐侧菜与主食
     """
-    trends = []
-    # 示例：抓取下厨房周度最受欢迎 (这是一个真实的网页接口)
-    # 注意：实际生产中我们可以对接多个 RSS 订阅源
-    target_url = "https://www.xiachufang.com/explore/" 
-    headers = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0 Mobile/15E148 Safari/604.1"
-    }
+    t = title.lower()
+    
+    # [1. Brunch 逻辑]
+    if any(k in t for k in ["蛋", "吐司", "三明治", "贝果", "燕麦", "滑蛋", "早安", "班尼迪克"]):
+        cat = "brunch"
+        staple = "全麦欧包 / 低GI钢切燕麦"
+        side = "芝麻菜沙拉与半个牛油果"
+    
+    # [2. Snack 逻辑]
+    elif any(k in t for k in ["酸奶", "坚果", "能量", "水果", "奇亚籽", "代餐", "碗", "莓果"]):
+        cat = "snack"
+        staple = "无糖糙米饼 / 少量黑巧克力碎"
+        side = "抗氧化浆果 (蓝莓/草莓)"
+
+    # [3. Chinese Dinner 逻辑]
+    elif any(k in t for k in ["蒸", "炒", "笋", "酱", "腐", "肉饼", "鱼", "虾", "粤", "川", "滇", "本帮"]):
+        cat = "chinese_dinner"
+        staple = "五谷杂粮饭 (1/4 碗)"
+        side = "白灼/清炒时令青菜 (加倍分量)"
+        
+    # [4. Dinner (Western/Mediterranean) 逻辑]
+    else:
+        cat = "dinner"
+        staple = "蒜香藜麦 / 盐烤红豆薯"
+        side = "地中海烤西葫芦与甜椒"
+
+    # 按照 [维度穿透] 审美重组
+    structured = (
+        f"Main: [互联网实时] {title} | "
+        f"Side: {side} | "
+        f"Staple: {staple} | "
+        f"Shop: [Fresh] {title}所需主料, 特级初榨橄榄油, 岩盐, 现磨黑胡椒"
+    )
+    return cat, structured
+
+def run_evolution():
+    url = "https://www.xiachufang.com/explore/"
+    headers = {"User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 13_0)"}
 
     try:
-        r = requests.get(target_url, headers=headers, timeout=10)
-        # 提取页面中的菜谱名称 (使用正则简单模拟爬虫逻辑)
-        # 实际逻辑会更复杂，这里确保演示真实联网动作
-        raw_names = re.findall(r'alt="([^"]+)"', r.text)
+        print("正在连接互联网，为 ORIGIN 引擎采集真实数据...")
+        response = requests.get(url, headers=headers, timeout=15)
+        titles = re.findall(r'alt="([^"]+)"', response.text)
         
-        # --- ORIGIN 过滤器：只保留符合你五大菜系及地中海审美的关键词 ---
-        keywords = ["清蒸", "凉拌", "酸笋", "柠檬", "橄榄", "牛里脊", "虾", "菌菇", "和牛", "地中海"]
+        # [严苛过滤逻辑] 踢出不符合 ORIGIN 审美的垃圾内容
+        black_list = ["炸", "糖醋", "蛋糕", "甜点", "奶油", "酥", "红烧肉", "可乐", "重油", "五花肉"]
         
-        for name in raw_names:
-            if any(k in name for k in keywords):
-                # 结构化：将互联网标题自动转化为你的 [维度穿透] 格式
-                # 自动分配配料模块
-                dish = f"Main: [全网热搜] {name} | Side: 时令有机时蔬沙拉 | Staple: 复合全谷物 | Shop: [Provisions] 初榨橄榄油, 海盐, 黑胡椒, 基础调味"
-                if dish not in trends:
-                    trends.append(dish)
+        # 获取当前云端 JSON
+        auth_headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        r = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=auth_headers)
+        gist_data = r.json()
+        content = json.loads(gist_data['files']['ducky_meals.json']['content'])
+
+        added_count = 0
+        for t in titles[:25]: # 扫描前 25 条
+            if not any(b in t for b in black_list):
+                category, structured_dish = classify_and_structure(t)
+                
+                # 查重：如果该分类下已存在相同菜名，则跳过
+                if structured_dish not in content[category]:
+                    content[category].insert(0, structured_dish) # 插入最新鲜的在顶部
+                    content[category] = content[category][:15] # 优胜劣汰，只留前 15 名
+                    added_count += 1
         
-        return trends[:5] # 每次只进货 5 道最精华的
+        # 回传更新到 GitHub Gist
+        updated_files = {
+            "ducky_meals.json": {
+                "content": json.dumps(content, ensure_ascii=False, indent=2)
+            }
+        }
+        patch_r = requests.patch(
+            f"https://api.github.com/gists/{GIST_ID}", 
+            headers=auth_headers, 
+            json={"files": updated_files}
+        )
+        
+        if patch_r.status_code == 200:
+            print(f"✅ 进化成功：新增 {added_count} 道真实菜谱，已自动归类并对齐营养比例。")
+        else:
+            print(f"❌ 更新失败，状态码: {patch_r.status_code}")
+
     except Exception as e:
-        print(f"联网抓取失败: {e}")
-        return []
-
-def evolve_system():
-    if not GIST_ID or not GITHUB_TOKEN:
-        print("未检测到密钥，请检查 Actions Secrets 设置。")
-        return
-
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    
-    # 1. 获取当前数据
-    r = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=headers)
-    gist = r.json()
-    filename = 'ducky_meals.json'
-    content = json.loads(gist['files'][filename]['content'])
-    
-    # 2. 真正联网进货
-    print("正在连接互联网抓取最新菜谱...")
-    new_dishes = fetch_real_web_trends()
-    
-    # 3. 注入数据池 (插入到各分类顶部)
-    if new_dishes:
-        for dish in new_dishes:
-            # 简单逻辑：包含中式关键词的进 chinese_dinner，其余进 dinner
-            if any(k in dish for k in ["酸笋", "本帮", "川", "粤", "滇"]):
-                if dish not in content['chinese_dinner']:
-                    content['chinese_dinner'].insert(0, dish)
-            else:
-                if dish not in content['dinner']:
-                    content['dinner'].insert(0, dish)
-        
-        print(f"成功抓取到 {len(new_dishes)} 道互联网趋势菜品。")
-    
-    # 4. 保持精简
-    for cat in content:
-        content[cat] = content[cat][:20]
-
-    # 5. 回传更新
-    updated_files = {filename: {"content": json.dumps(content, ensure_ascii=False, indent=2)}}
-    requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json={"files": updated_files})
+        print(f"❌ 运行异常: {e}")
 
 if __name__ == "__main__":
-    evolve_system()
+    run_evolution()
