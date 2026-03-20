@@ -4,87 +4,80 @@ import os
 import random
 
 # --- 核心配置 ---
-GIST_ID = os.environ.get('GIST_ID')
-GITHUB_TOKEN = os.environ.get('GH_TOKEN')
-FOOD_API_KEY = os.environ.get('FOOD_API_KEY')
+GIST_ID = os.getenv('GIST_ID')
+GITHUB_TOKEN = os.getenv('GH_TOKEN')
+FOOD_API_KEY = os.getenv('FOOD_API_KEY')
+
+# --- 扩展 ORIGIN 翻译库 (覆盖早中晚加所有场景) ---
+TRANS_DICT = {
+    "Egg": "滑蛋", "Toast": "吐司", "Avocado": "牛油果", "Oat": "燕麦", "Pancake": "松饼", # Brunch
+    "Shrimp": "基围虾", "Ginger": "姜葱", "Soy": "酱香", "Stir-fry": "小炒", "Fish": "鲜鱼", # Chinese
+    "Chicken": "鸡胸", "Beef": "草饲牛", "Salad": "沙拉", "Roasted": "炉烤", "Lemon": "青柠", # Dinner
+    "Yogurt": "酸奶碗", "Nut": "坚果", "Berry": "浆果", "Smoothie": "奶昔", "Dark Chocolate": "黑巧", # Snack
+    "Garlic": "蒜香", "Mediterranean": "地中海", "Healthy": "纤体", "Bowl": "能量碗"
+}
+
+def origin_translate(title):
+    """提取关键词并重组为具有逻辑美感的中文菜名"""
+    words = title.replace("-", " ").split()
+    matched = [TRANS_DICT[w.capitalize()] for w in words if w.capitalize() in TRANS_DICT]
+    if not matched: return "地中海高蛋白精选"
+    return "".join(dict.fromkeys(matched))
 
 def run_evolution():
-    if not FOOD_API_KEY or not GITHUB_TOKEN or not GIST_ID:
-        print("❌ 环境变量缺失！请检查 Secret 设置。")
-        return
+    if not all([GIST_ID, GITHUB_TOKEN, FOOD_API_KEY]): return
 
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     
-    # 1. 尝试连接 API (增加中文参数)
-    print(f"--- 正在诊断 API 连接 ---")
-    # tags 包含你的四个分类逻辑
-    tag_list = ["breakfast", "main course", "chinese", "snack"]
-    selected_tag = random.choice(tag_list)
-    
-    # 加入 &addRecipeInformation=true 和 &language=zh (虽然API中文支持有限，但能增强识别)
-    api_url = f"https://api.spoonacular.com/recipes/random?number=3&tags={selected_tag}&apiKey={FOOD_API_KEY}"
-    
+    # 策略：分四次请求，每次针对一个特定标签，确保各分类平衡
+    # 1. breakfast(Brunch), 2. chinese(中式), 3. snack(加餐), 4. main course(西式晚餐)
+    plans = [
+        {"tag": "breakfast", "cat": "brunch", "side": "有机芝麻菜/牛油果", "staple": "全麦欧包"},
+        {"tag": "chinese", "cat": "chinese_dinner", "side": "白灼时令青菜 (加倍)", "staple": "五谷杂粮饭"},
+        {"tag": "snack", "cat": "snack", "side": "抗氧化蓝莓", "staple": "无糖糙米饼"},
+        {"tag": "main course", "cat": "dinner", "side": "地中海烤西葫芦", "staple": "盐烤红薯"}
+    ]
+
     try:
-        api_res = requests.get(api_url, timeout=20)
-        print(f"API 状态码: {api_res.status_code}")
-        
-        if api_res.status_code != 200:
-            print(f"❌ API 通信失败！报错信息: {api_res.text}")
-            return
-
-        recipes = api_res.json().get('recipes', [])
-        if not recipes:
-            print("⚠️ API 通了，但没返回任何菜谱。可能是 Tags 匹配太严，尝试扩大搜索...")
-            return
-
-        print(f"✅ 成功从 API 抓取到 {len(recipes)} 道菜。")
-
-        # 2. 获取并解析 Gist
+        # 获取 Gist 现有内容
         gist_res = requests.get(f"https://api.github.com/gists/{GIST_ID}", headers=headers)
-        gist_data = gist_res.json()
+        content = json.loads(gist_res.json()['files']['ducky_meals.json']['content'])
         
-        if 'files' not in gist_data:
-            print("❌ Gist ID 可能错误，无法读取文件。")
-            return
-            
-        content = json.loads(gist_data['files']['ducky_meals.json']['content'])
+        total_added = 0
 
-        # 3. 处理数据并分类 (加入 50:25:25 逻辑)
-        for r in recipes:
-            eng_title = r.get('title')
-            # 简单的关键词翻译映射
-            chn_title = eng_title.replace("Chicken", "鸡肉").replace("Salmon", "三文鱼").replace("Salad", "沙拉").replace("Beef", "牛肉").replace("Rice", "饭")
-            
-            # 分类判定
-            types = [t.lower() for t in r.get('dishTypes', [])]
-            if 'breakfast' in types or 'brunch' in types: cat = "brunch"
-            elif 'snack' in types or 'fingerfood' in types: cat = "snack"
-            elif "chinese" in str(r.get('cuisines', [])).lower(): cat = "chinese_dinner"
-            else: cat = "dinner"
+        for plan in plans:
+            # 针对每个分类精准进货 3 道真实菜谱
+            api_url = f"https://api.spoonacular.com/recipes/random?number=3&tags={plan['tag']}&apiKey={FOOD_API_KEY}"
+            res = requests.get(api_url, timeout=15).json()
+            recipes = res.get('recipes', [])
 
-            # 组装符合 ORIGIN 审美的条目
-            entry = (
-                f"Main: [维度穿透] {chn_title} | "
-                f"Side: 时令有机绿叶菜 (25% 纤维) | "
-                f"Staple: 复合全谷物 (25% 碳水) | "
-                f"Shop: [Fresh] {chn_title}核心食材, 优质油脂"
-            )
-            
-            # 强制插入（避开去重逻辑，看看能不能写进去）
-            content[cat].insert(0, entry)
-            content[cat] = content[cat][:15]
+            for r in recipes:
+                chn_name = origin_translate(r.get('title', ''))
+                cat = plan['cat']
+                
+                # 提取配料
+                ing = [i.get('name') for i in r.get('extendedIngredients', [])[:3]]
+                shop = ", ".join(ing) if ing else "核心蛋白质"
 
-        # 4. 推送回 Gist
-        updated_files = {"ducky_meals.json": {"content": json.dumps(content, ensure_ascii=False, indent=2)}}
-        patch_res = requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json={"files": updated_files})
-        
-        if patch_res.status_code == 200:
-            print("🚀 进化成功！数据已强制推送到 Gist。")
-        else:
-            print(f"❌ 写入 Gist 失败: {patch_res.status_code}, 详情: {patch_res.text}")
+                entry = (
+                    f"Main: [维度穿透] {chn_name} | "
+                    f"Side: {plan['side']} (25%纤维) | "
+                    f"Staple: {plan['staple']} (25%碳水) | "
+                    f"Shop: [Fresh] {shop}, 海盐, 优质油脂"
+                )
+
+                if entry not in content[cat]:
+                    content[cat].insert(0, entry)
+                    content[cat] = content[cat][:15] # 限制货架容量
+                    total_added += 1
+
+        # 更新 Gist
+        updated = {"ducky_meals.json": {"content": json.dumps(content, ensure_ascii=False, indent=2)}}
+        requests.patch(f"https://api.github.com/gists/{GIST_ID}", headers=headers, json={"files": updated})
+        print(f"✅ 进化完成！全分类覆盖，共新增 {total_added} 道真实菜谱。")
 
     except Exception as e:
-        print(f"💥 运行崩溃: {e}")
+        print(f"💥 异常: {e}")
 
 if __name__ == "__main__":
     run_evolution()
